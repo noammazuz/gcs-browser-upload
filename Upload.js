@@ -1,4 +1,9 @@
-import { put } from 'axios'
+import {
+  put
+} from 'axios'
+import {
+  axios
+} from 'axios'
 import FileMeta from './FileMeta'
 import FileProcessor from './FileProcessor'
 import debug from './debug'
@@ -20,7 +25,7 @@ const MIN_CHUNK_SIZE = 262144
 export default class Upload {
   static errors = errors;
 
-  constructor (args, allowSmallChunks) {
+  constructor(args, allowSmallChunks) {
     var opts = {
       chunkSize: MIN_CHUNK_SIZE,
       storage: window.localStorage,
@@ -39,7 +44,7 @@ export default class Upload {
     if (!opts.id || !opts.url || !opts.file) {
       throw new MissingOptionsError()
     }
-
+    //debug.enabled = true;
     debug('Creating new upload instance:')
     debug(` - Url: ${opts.url}`)
     debug(` - Id: ${opts.id}`)
@@ -49,10 +54,16 @@ export default class Upload {
     this.opts = opts
     this.meta = new FileMeta(opts.id, opts.file.size, opts.chunkSize, opts.storage)
     this.processor = new FileProcessor(opts.file, opts.chunkSize)
+
   }
 
-  async start () {
-    const { meta, processor, opts, finished } = this
+  async start() {
+    const {
+      meta,
+      processor,
+      opts,
+      finished
+    } = this
 
     const resumeUpload = async () => {
       const localResumeIndex = meta.getResumeIndex()
@@ -94,7 +105,9 @@ export default class Upload {
       debug(` - Start: ${start}`)
       debug(` - End: ${end}`)
 
-      const res = await safePut(opts.url, chunk, { headers })
+      const res = await safePut(opts.url, chunk, {
+        headers
+      })
       checkResponseStatus(res, opts, [200, 201, 308])
       debug(`Chunk upload succeeded, adding checksum ${checksum}`)
       meta.addChecksum(index, checksum)
@@ -121,7 +134,9 @@ export default class Upload {
         'Content-Range': `bytes */${opts.file.size}`
       }
       debug('Retrieving upload status from GCS')
-      const res = await safePut(opts.url, null, { headers })
+      const res = await safePut(opts.url, null, {
+        headers
+      })
 
       checkResponseStatus(res, opts, [308])
       const header = res.headers['range']
@@ -147,25 +162,27 @@ export default class Upload {
     this.finished = true
   }
 
-  pause () {
+  pause() {
     this.processor.pause()
     debug('Upload paused')
   }
 
-  unpause () {
+  unpause() {
     this.processor.unpause()
     debug('Upload unpaused')
   }
 
-  cancel () {
+  cancel() {
     this.processor.pause()
     this.meta.reset()
     debug('Upload cancelled')
   }
 }
 
-function checkResponseStatus (res, opts, allowed = []) {
-  const { status } = res
+function checkResponseStatus(res, opts, allowed = []) {
+  const {
+    status
+  } = res
   if (allowed.indexOf(status) > -1) {
     return true
   }
@@ -192,14 +209,40 @@ function checkResponseStatus (res, opts, allowed = []) {
   }
 }
 
-async function safePut () {
+async function safePut() {
+
   try {
     return await put.apply(null, arguments)
   } catch (e) {
+
     if (e instanceof Error) {
-      throw e
+
+      if (e.message == 'Network Error') {
+
+        const range = arguments[2].headers['Content-Range'];
+        const rangeArr = range.split("/");
+        const rangeEnd = parseInt(rangeArr[0].split("-")[1]);
+        const total = parseInt(rangeArr[1]);
+        // check if the error is on the last chunk - if yes IGNORE;
+        if ((rangeEnd + 1 === total)) {
+          return {
+            status: 200
+          }
+        }
+      }
+
+      throw e;
     } else {
       return e
     }
   }
 }
+
+
+/*
+https://storage.googleapis.com/dx-uploads/2.mp4?GoogleAccessId=dx-uploads-sa%40nth-skyline-202908.iam.gserviceaccount.com&Expires=1541613873&Signature=lwZOX4PwfTp%2BA6Ft4fdLOsQ%2FKtVzPVe4Cki5NJs9yWsKQx81BAO0GOkqDzSb6N1aGcsIv8YKbygOCOnfiwMyPkzC9rKbl86M%2FK37ID7pGTzRclts23qGyru0A7gD%2BNqi%2FjR4EnagPjEdz%2Bp7z6ODJGyq3pQ%2BhcH%2FIu%2By7pEwUyXdUzqyaGdtLQsfJY8RzXtLvOlnEN6Wft03w%2FWqkmjMsyfNtWdHhxHvzvtz6f2iKFiPbsekmhVNj2cU%2F49TVdnRX25ph2TLW8%2FPuuboSnZMDJlXOfEZT62XIXttBw1KjvuqnA1zgmoFkDISgjIgM0kga6mSr2%2BMs%2B4i9gEGrE2pEw%3D%3D&upload_id=AEnB2UqwHitsBXfVFgZFYzAGUHakzHq9s2Ahbrcf8s97gNWfK3gt8teS61WH5gM3kIfQCkMTKM4PlOFaZuxlriZl6XwC1LzUtA
+
+https://storage.googleapis.com/dx-uploads/2.mp4?GoogleAccessId=dx-uploads-sa%40nth-skyline-202908.iam.gserviceaccount.com&Expires=1541613873&Signature=lwZOX4PwfTp%2BA6Ft4fdLOsQ%2FKtVzPVe4Cki5NJs9yWsKQx81BAO0GOkqDzSb6N1aGcsIv8YKbygOCOnfiwMyPkzC9rKbl86M%2FK37ID7pGTzRclts23qGyru0A7gD%2BNqi%2FjR4EnagPjEdz%2Bp7z6ODJGyq3pQ%2BhcH%2FIu%2By7pEwUyXdUzqyaGdtLQsfJY8RzXtLvOlnEN6Wft03w%2FWqkmjMsyfNtWdHhxHvzvtz6f2iKFiPbsekmhVNj2cU%2F49TVdnRX25ph2TLW8%2FPuuboSnZMDJlXOfEZT62XIXttBw1KjvuqnA1zgmoFkDISgjIgM0kga6mSr2%2BMs%2B4i9gEGrE2pEw%3D%3D&upload_id=AEnB2UqwHitsBXfVFgZFYzAGUHakzHq9s2Ahbrcf8s97gNWfK3gt8teS61WH5gM3kIfQCkMTKM4PlOFaZuxlriZl6XwC1LzUtA
+
+https://storage.googleapis.com/dx-uploads/2.mp4?GoogleAccessId=dx-uploads-sa%40nth-skyline-202908.iam.gserviceaccount.com&Expires=1541613873&Signature=lwZOX4PwfTp%2BA6Ft4fdLOsQ%2FKtVzPVe4Cki5NJs9yWsKQx81BAO0GOkqDzSb6N1aGcsIv8YKbygOCOnfiwMyPkzC9rKbl86M%2FK37ID7pGTzRclts23qGyru0A7gD%2BNqi%2FjR4EnagPjEdz%2Bp7z6ODJGyq3pQ%2BhcH%2FIu%2By7pEwUyXdUzqyaGdtLQsfJY8RzXtLvOlnEN6Wft03w%2FWqkmjMsyfNtWdHhxHvzvtz6f2iKFiPbsekmhVNj2cU%2F49TVdnRX25ph2TLW8%2FPuuboSnZMDJlXOfEZT62XIXttBw1KjvuqnA1zgmoFkDISgjIgM0kga6mSr2%2BMs%2B4i9gEGrE2pEw%3D%3D&upload_id=AEnB2UqwHitsBXfVFgZFYzAGUHakzHq9s2Ahbrcf8s97gNWfK3gt8teS61WH5gM3kIfQCkMTKM4PlOFaZuxlriZl6XwC1LzUtA
+*/
